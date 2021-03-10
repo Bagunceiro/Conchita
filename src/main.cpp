@@ -2,12 +2,11 @@
 #include <vector>
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <lfs.h>
 #include <LITTLEFS.h>
 
 const char *ssid = "asgard_2g";
 const char *password = "enaLkraP";
-
-
 const char *mDNSName = "littlefs";
 
 WiFiServer wifiServer(24);
@@ -38,7 +37,7 @@ uint16_t archivePort = 80;
 String CWD('/');
 const char *prompt = "> ";
 
-const int MAX_PATH_LENGTH = 255; // LFS_NAME_MAX is 255
+const int MAX_PATH_LENGTH = LFS_NAME_MAX; // LFS_NAME_MAX is 255
 
 const int getChar()
 {
