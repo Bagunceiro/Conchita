@@ -4,10 +4,11 @@
 #include <ESPmDNS.h>
 #include <lfs.h>
 #include <LITTLEFS.h>
+#include <esp_wps.h>
 
-const char *ssid = "asgard_2g";
-const char *password = "enaLkraP";
-const char *mDNSName = "littlefs";
+// const char *ssid = "asgard_2g";
+// const char *password = "enaLkraP";
+const char *mDNSName = "conchita";
 
 WiFiServer wifiServer(24);
 WiFiClient client;
@@ -17,6 +18,12 @@ bool redirect_append = false;
 Stream *StdOut = &client;
 Stream *StdIn  = &client;
 Stream *StdErr = &client;
+
+/*
+Stream *StdOut = &Serial;
+Stream *StdIn  = &Serial;
+Stream *StdErr = &Serial;
+*/
 
 using namespace std;
 
@@ -257,20 +264,77 @@ const char *dirname(const char *path, char *result = NULL)
     return result;
 }
 
+void wpsInit()
+{
+  esp_wps_config_t wpsconfig;
+
+  wpsconfig.crypto_funcs = &g_wifi_default_wps_crypto_funcs;
+  wpsconfig.wps_type = WPS_TYPE_PBC;
+  strcpy(wpsconfig.factory_info.manufacturer, "PA");
+  strcpy(wpsconfig.factory_info.model_number, "1");
+  strcpy(wpsconfig.factory_info.model_name, "Conchita");
+  strcpy(wpsconfig.factory_info.device_name, "ESP32");
+  esp_wifi_wps_enable(&wpsconfig);
+  esp_wifi_wps_start(0);
+}
+
+void WiFiEvent(WiFiEvent_t event, system_event_info_t info)
+{
+  // String ssid;
+  // String psk;
+
+  switch (event)
+  {
+  case SYSTEM_EVENT_STA_START:
+    break;
+  case SYSTEM_EVENT_STA_GOT_IP:
+    Serial.println("Connected to : " + String(WiFi.SSID()));
+    Serial.print("Got IP: ");
+    Serial.println(WiFi.localIP());
+    break;
+  case SYSTEM_EVENT_STA_DISCONNECTED:
+    Serial.println("Disconnected from station");
+    WiFi.reconnect();
+    break;
+  case SYSTEM_EVENT_STA_WPS_ER_SUCCESS:
+    // ssid = WiFi.SSID();
+    // psk = WiFi.psk();
+    Serial.println("WPS Successful : " + WiFi.SSID() + "/" + WiFi.psk());
+    esp_wifi_wps_disable();
+    //updateWiFiDef(ssid, psk);
+    //delay(10);
+    //WiFi.begin();
+    break;
+  case SYSTEM_EVENT_STA_WPS_ER_FAILED:
+    Serial.println("WPS Failed");
+    esp_wifi_wps_disable();
+    break;
+  case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT:
+    Serial.println("WPS Timed out");
+    esp_wifi_wps_disable();
+    break;
+  default:
+    break;
+  }
+}
+
 void setup()
 {
     Serial.begin(9600);
     delay(500);
 
-    int count = 0;
+    int loopcount = 0;
+    WiFi.onEvent(WiFiEvent);
+    int trycount = 0;
     while (WiFi.status() != WL_CONNECTED)
     {
-        if (count <= 0)
+        if (loopcount <= 0)
         {
-            WiFi.begin(ssid, password);
-            count = 2;
+            trycount++;
+            WiFi.begin(); // ssid, password);
+            loopcount = 2;
         }
-        count--;
+        loopcount--;
         delay(1000);
         Serial.println("Connecting to WiFi");
     }
