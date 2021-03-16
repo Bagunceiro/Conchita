@@ -16,7 +16,7 @@ WiFiClient client;
 bool redirect_append = false;
 
 Stream *StdOut = &client;
-Stream *StdIn  = &client;
+Stream *StdIn = &client;
 Stream *StdErr = &client;
 
 /*
@@ -46,6 +46,9 @@ const char *prompt = "> ";
 
 const int MAX_PATH_LENGTH = LFS_NAME_MAX; // LFS_NAME_MAX is 255
 
+/*
+ * get a character from StdIn
+ */
 const int getChar()
 {
     int c = -2;
@@ -70,6 +73,9 @@ const int getChar()
     return c;
 }
 
+/*
+ * Read a command line from the telnet client
+ */
 String getCommand()
 {
     String result;
@@ -121,6 +127,10 @@ char *shrinkBuffer(char *buffer, int pos = 0)
     reentrant provide an adequately sized (MAX_PATH_LENGTH + 1) buffer as the
     second parameter
 */
+/*
+ * Convert relative pathname to full absolute path (as required by the littlefs
+ * library functions)
+ */
 const char *abspath(const char *path, char *result = NULL)
 {
     static char *buffer = NULL;
@@ -189,6 +199,9 @@ const char *abspath(const char *path, char *result = NULL)
     return result;
 }
 
+/*
+ * removes the directory portion of a qualified pathname
+ */
 const char *basename(const char *path, char *result = NULL)
 {
     static char *buffer = NULL;
@@ -226,6 +239,9 @@ const char *basename(const char *path, char *result = NULL)
     return name;
 }
 
+/*
+ * Returns the directory portion of a qualified file name.
+ */
 const char *dirname(const char *path, char *result = NULL)
 {
     static char *buffer = NULL;
@@ -266,56 +282,50 @@ const char *dirname(const char *path, char *result = NULL)
 
 void wpsInit()
 {
-  esp_wps_config_t wpsconfig;
+    esp_wps_config_t wpsconfig;
 
-  wpsconfig.crypto_funcs = &g_wifi_default_wps_crypto_funcs;
-  wpsconfig.wps_type = WPS_TYPE_PBC;
-  strcpy(wpsconfig.factory_info.manufacturer, "PA");
-  strcpy(wpsconfig.factory_info.model_number, "1");
-  strcpy(wpsconfig.factory_info.model_name, "Conchita");
-  strcpy(wpsconfig.factory_info.device_name, "ESP32");
-  esp_wifi_wps_enable(&wpsconfig);
-  esp_wifi_wps_start(0);
+    wpsconfig.crypto_funcs = &g_wifi_default_wps_crypto_funcs;
+    wpsconfig.wps_type = WPS_TYPE_PBC;
+    strcpy(wpsconfig.factory_info.manufacturer, "PA");
+    strcpy(wpsconfig.factory_info.model_number, "1");
+    strcpy(wpsconfig.factory_info.model_name, "Conchita");
+    strcpy(wpsconfig.factory_info.device_name, "ESP32");
+    esp_wifi_wps_enable(&wpsconfig);
+    esp_wifi_wps_start(0);
 }
 
 void WiFiEvent(WiFiEvent_t event, system_event_info_t info)
 {
-  // String ssid;
-  // String psk;
-
-  switch (event)
-  {
-  case SYSTEM_EVENT_STA_START:
-    break;
-  case SYSTEM_EVENT_STA_GOT_IP:
-    Serial.println("Connected to : " + String(WiFi.SSID()));
-    Serial.print("Got IP: ");
-    Serial.println(WiFi.localIP());
-    break;
-  case SYSTEM_EVENT_STA_DISCONNECTED:
-    Serial.println("Disconnected from station");
-    WiFi.reconnect();
-    break;
-  case SYSTEM_EVENT_STA_WPS_ER_SUCCESS:
-    // ssid = WiFi.SSID();
-    // psk = WiFi.psk();
-    Serial.println("WPS Successful : " + WiFi.SSID() + "/" + WiFi.psk());
-    esp_wifi_wps_disable();
-    //updateWiFiDef(ssid, psk);
-    //delay(10);
-    //WiFi.begin();
-    break;
-  case SYSTEM_EVENT_STA_WPS_ER_FAILED:
-    Serial.println("WPS Failed");
-    esp_wifi_wps_disable();
-    break;
-  case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT:
-    Serial.println("WPS Timed out");
-    esp_wifi_wps_disable();
-    break;
-  default:
-    break;
-  }
+    switch (event)
+    {
+    case SYSTEM_EVENT_STA_START:
+        break;
+    case SYSTEM_EVENT_STA_GOT_IP:
+        Serial.println("Connected to : " + String(WiFi.SSID()));
+        Serial.print("Got IP: ");
+        Serial.println(WiFi.localIP());
+        break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        // Serial.printf("%lu Disconnected from station\n", millis());
+        WiFi.reconnect();
+        break;
+    case SYSTEM_EVENT_STA_WPS_ER_SUCCESS:
+        Serial.println("WPS Successful : " + WiFi.SSID() + "/" + WiFi.psk());
+        esp_wifi_wps_disable();
+        delay(10);
+        WiFi.begin();
+        break;
+    case SYSTEM_EVENT_STA_WPS_ER_FAILED:
+        Serial.println("WPS Failed");
+        esp_wifi_wps_disable();
+        break;
+    case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT:
+        Serial.println("WPS Timed out");
+        esp_wifi_wps_disable();
+        break;
+    default:
+        break;
+    }
 }
 
 void setup()
@@ -323,21 +333,55 @@ void setup()
     Serial.begin(9600);
     delay(500);
 
-    int loopcount = 0;
+    WiFi.mode(WIFI_STA);
     WiFi.onEvent(WiFiEvent);
-    int trycount = 0;
+
+    unsigned long then = millis();
+    enum
+    {
+        MODE_NONE,
+        MODE_CONN,
+        MODE_WPS
+    } mode = MODE_NONE;
+
+    /*
+     * Until we have a connection alternate between attempt to
+     *  - connect to last used AP (for 5 seconds) and
+     *  - WPS (for 30 seconds).
+     */
     while (WiFi.status() != WL_CONNECTED)
     {
-        if (loopcount <= 0)
+        unsigned long sinceThen = millis() - then;
+        if (sinceThen < 5000) // first 5 secs try simply connecting to AP
         {
-            trycount++;
-            WiFi.begin(); // ssid, password);
-            loopcount = 2;
+            if (mode != MODE_CONN)
+            {
+                mode = MODE_CONN;
+                Serial.printf("%lu Connect to WiFi\n", millis());
+                WiFi.begin(); // In case of mergency can take (ssid, password);
+            }
         }
-        loopcount--;
-        delay(1000);
-        Serial.println("Connecting to WiFi");
+        else if (sinceThen < 35000) // then try 30 seconds of WPS
+        {
+            if (mode != MODE_WPS)
+            {
+                mode = MODE_WPS;
+                Serial.printf("%lu Try WPS\n", millis());
+                WiFi.disconnect();
+                wpsInit();
+            }
+        }
+        else // reset all parameters for another cycle
+        {
+            mode = MODE_NONE;
+            then = millis();
+            WiFi.disconnect();
+            esp_wifi_wps_disable();
+        }
+        yield();
     }
+
+    // esp_wifi_wps_disable();
 
     Serial.println("Connected to WiFi");
     Serial.println(WiFi.localIP());
@@ -1052,16 +1096,16 @@ void loop()
             Serial.println("Client connected");
             conn = true;
         }
-//        if (client.connected())
-//        {
-            std::vector<String> args;
+        //        if (client.connected())
+        //        {
+        std::vector<String> args;
 
-            client.print(CWD.c_str());
-            client.print(prompt);
-            String l = getCommand();
-            parse(l.c_str(), args);
-            execute(args);
-//        }
+        client.print(CWD.c_str());
+        client.print(prompt);
+        String l = getCommand();
+        parse(l.c_str(), args);
+        execute(args);
+        //        }
     }
     if (conn)
         Serial.println("Client disconnected");
