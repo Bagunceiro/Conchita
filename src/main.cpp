@@ -10,7 +10,7 @@
 // const char *password = "enaLkraP";
 const char *mDNSName = "conchita";
 
-WiFiServer wifiServer(24);
+WiFiServer wifiServer(1685);
 WiFiClient client;
 
 bool redirect_append = false;
