@@ -19,10 +19,10 @@
   "frameworks": "arduino",
   "platforms": "espressif32",
   "dependencies": {
-	"LittleFS": "",
-	"HTTPUpdate": "",
-	"HTTPClient": "",
-	"WiFiClientSecure": "",
-	"Update": "",
-  },
+	"LittleFS": "*",
+	"HTTPUpdate": "*",
+	"HTTPClient": "*",
+	"WiFiClientSecure": "*",
+	"Update": "*"
+  }
 }
