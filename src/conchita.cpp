@@ -4,8 +4,8 @@
 #include <HTTPUpdate.h>
 #include <vector>
 
-#include "cli.h"
-#include "config.h"
+#include "conchita.h"
+// #include "config.h"
 #include "url.h"
 
 String error;
