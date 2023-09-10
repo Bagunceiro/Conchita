@@ -1,0 +1,20 @@
+{
+  "name": "conchita",
+  "version": "0.0",
+  "description": "Tiny shell for remote maintenance of ESP32 systems",
+  "keywords": "shell",
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/bagunceiro/conchita.git"
+  },
+  "authors":
+  [
+    {
+      "url": "https://github.com/bagunceiro",
+      "maintainer": true
+    }
+  ],
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}
