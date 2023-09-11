@@ -1,5 +1,5 @@
 {
-  "name": "Conchita",
+  "name": "conchita",
   "version": "0.3",
   "description": "Tiny shell for remote maintenance of ESP32 systems",
   "keywords": "shell",
