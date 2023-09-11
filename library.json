@@ -1,6 +1,6 @@
 {
-  "name": "conchita",
-  "version": "0.2",
+  "name": "Conchita",
+  "version": "0.3",
   "description": "Tiny shell for remote maintenance of ESP32 systems",
   "keywords": "shell",
   "repository":

@@ -2,8 +2,8 @@
 #include <WiFi.h>
 
 
-const char* ssid = "asgard";
-const char* psk = "enaLkraP";
+const char* ssid = "ssid";
+const char* psk = "secret";
 
 Conchita conchita(1685);
 
