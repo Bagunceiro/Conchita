@@ -1,37 +1,32 @@
 #include <Arduino.h>
-#include <WiFi.h>
+
 #include <LittleFS.h>
 #include <HTTPUpdate.h>
-#include <vector>
+#include <map>
 
 #include "conchita.h"
-// #include "config.h"
 #include "url.h"
 
-String error;
-WiFiServer cliServer(1685);
-WiFiClient cliClient;
-
-const uint16_t cliStackSize = 4096; //* @todo needs to be configurable by the caller
-
-struct commandDescriptor
+void errout(const char *func, const char *txt, int result, Stream &errstr)
 {
-    int (*func)(stringArray);
-    String helpText;
-};
+    errstr.printf("%s: error %d (%s)\n", func, result, txt);
+}
 
-std::map<String, commandDescriptor> commandTable;
+void stopClient(Stream &client)
+{
+    static_cast<WiFiClient &>(client).stop();
+}
 
-String getCommand()
+String Conchita::getCommand()
 {
     String result;
-    cliClient.printf("%s> ", "psu");
+    _client.printf("%s> ", _prompt.c_str());
 
     while (true)
     {
-        if (cliClient.available() > 0)
+        if (_client.available() > 0)
         {
-            int c = (cliClient.read());
+            int c = (_client.read());
             if (c == '\n')
                 break;
             else if (c == '\r')
@@ -45,9 +40,9 @@ String getCommand()
                 }
             }
         }
-        else if (!cliClient.connected())
+        else if (!_client.connected())
         {
-            cliClient.stop();
+            _client.stop();
             result = "";
             break;
         }
@@ -56,7 +51,7 @@ String getCommand()
     return result;
 }
 
-int parse(const char *line, stringArray &argv)
+int Conchita::parse(const char *line, stringArray &argv)
 {
     String arg;
     bool quoting = false;
@@ -107,12 +102,12 @@ void reportProgress(size_t completed, size_t total)
     if (phase != oldPhase)
     {
         Serial.printf("%3d%% (%d/%d)\n", progress, completed, total);
-        cliClient.printf("%3d%% (%d/%d)\n", progress, completed, total);
+        // device.printf("%3d%% (%d/%d)\n", progress, completed, total);
         oldPhase = phase;
     }
 }
 
-int wget(stringArray argv)
+int wget(stringArray argv, Stream &out)
 {
     int result = -1;
     if ((argv.size() >= 2) && (argv.size() < 4))
@@ -168,27 +163,27 @@ int wget(stringArray argv)
                     if (LittleFS.rename("/upload.tmp", target))
                     {
                         Serial.println("Complete");
-                        cliClient.println("Complete");
+                        out.println("Complete");
                         result = 0;
                     }
                     else
-                        cliClient.println("Couldn't create file");
+                        out.println("Couldn't create file");
                 }
                 else
-                    cliClient.println("Couldn't create temp file");
+                    out.println("Couldn't create temp file");
             }
             else
-                cliClient.printf("Upload failed %d\n", httpCode);
+                out.printf("Upload failed %d\n", httpCode);
         }
         else
-            cliClient.printf("Get failed %s\n", http.errorToString(httpCode).c_str());
+            out.printf("Get failed %s\n", http.errorToString(httpCode).c_str());
     }
     else
-        error = "upload SERVER PORT SOURCE TARGET";
+        errout(argv[0].c_str(), "upload SERVER PORT SOURCE TARGET", result, out);
     return result;
 }
 
-int fsupdate(stringArray argv)
+int fsupdate(stringArray argv, Stream &out)
 {
     int result = -1;
     if (argv.size() == 2)
@@ -207,29 +202,29 @@ int fsupdate(stringArray argv)
         switch (ret)
         {
         case HTTP_UPDATE_FAILED:
-            cliClient.printf("FS Update fail error (%d): %s\n",
-                             httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+            out.printf("FS Update fail error (%d): %s\n",
+                       httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
             break;
 
         case HTTP_UPDATE_NO_UPDATES:
-            cliClient.println("No FS update file available");
+            out.println("No FS update file available");
             break;
 
         case HTTP_UPDATE_OK:
             Serial.println("FS update available");
-            cliClient.println("FS update available");
+            out.println("FS update available");
             result = 0;
             break;
         }
     }
     else
     {
-        error = "fsupdate URL";
+        errout(argv[0].c_str(), "fsupdate URL", result, out);
     }
     return result;
 }
 
-int sysupdate(stringArray argv)
+int sysupdate(stringArray argv, Stream &out)
 {
     int result = -1;
     if (argv.size() == 2)
@@ -250,18 +245,18 @@ int sysupdate(stringArray argv)
         switch (ret)
         {
         case HTTP_UPDATE_FAILED:
-            cliClient.printf("Update fail error (%d): %s\n",
-                             httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+            out.printf("Update fail error (%d): %s\n",
+                       httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
             break;
 
         case HTTP_UPDATE_NO_UPDATES:
-            cliClient.println("No update file available");
+            out.println("No update file available");
             break;
 
         case HTTP_UPDATE_OK:
             Serial.println("System update available - reseting");
-            cliClient.println("System update available - reseting");
-            cliClient.stop();
+            out.println("System update available - reseting");
+            stopClient(out);
             delay(1000);
             ESP.restart();
             result = 0;
@@ -270,65 +265,65 @@ int sysupdate(stringArray argv)
     }
     else
     {
-        error = "sysupdate URL";
+        errout(argv[0].c_str(), "sysupdate URL", result, out);
     }
     return result;
 }
 
-void treeRec(File dir)
+void treeRec(File dir, Stream &out)
 {
     if (dir)
     {
         dir.size();
         if (dir.isDirectory())
         {
-            cliClient.printf("%s :\n", dir.name());
+            out.printf("%s :\n", dir.name());
             while (File f = dir.openNextFile())
             {
-                treeRec(f);
+                treeRec(f, out);
                 f.close();
             }
         }
         else
-            cliClient.printf(" %6.d %s\n", dir.size(), dir.name());
+            out.printf(" %6.d %s\n", dir.size(), dir.name());
 
         dir.close();
     }
 }
 
-int rm(stringArray argv)
+int rm(stringArray argv, Stream &out)
 {
     for (int i = 1; i < argv.size(); i++)
     {
         if (!((LittleFS.remove(argv[i]) || LittleFS.rmdir(argv[i]))))
         {
-            cliClient.printf("Could not remove %s\n", argv[i].c_str());
+            out.printf("Could not remove %s\n", argv[i].c_str());
         }
     }
     return 0;
 }
 
-int tree(stringArray argv)
+int tree(stringArray argv, Stream &out)
 {
     File dir = LittleFS.open("/");
-    treeRec(dir);
+    treeRec(dir, out);
     dir.close();
     return 0;
 }
 
-int mkdir(stringArray argv)
+int mkdir(stringArray argv, Stream &out)
 {
     for (int i = 1; i < argv.size(); i++)
     {
         if (!LittleFS.mkdir(argv[i]))
         {
-            cliClient.printf("Could not make %s\n", argv[i].c_str());
+            out.printf("Could not make %s\n", argv[i].c_str());
         }
     }
     return 0;
 }
 
-int cat(stringArray argv)
+int cat(stringArray argv, Stream &out)
 {
     for (int i = 1; i < argv.size(); i++)
     {
@@ -337,43 +332,43 @@ int cat(stringArray argv)
         {
             if (f.isDirectory())
             {
-                cliClient.printf("%s is a directory\n", argv[i].c_str());
+                out.printf("%s is a directory\n", argv[i].c_str());
                 break;
             }
             else
             {
                 int c;
                 while ((c = f.read()) >= 0)
-                    cliClient.write(c);
+                    out.write(c);
             }
             f.close();
         }
         else
         {
-            cliClient.printf("Could not open %s\n", argv[i].c_str());
+            out.printf("Could not open %s\n", argv[i].c_str());
         }
     }
     return 0;
 }
 
-int reboot(stringArray argv)
+int reboot(stringArray argv, Stream &out)
 {
-    cliClient.println("Rebooting");
-    cliClient.flush();
+    out.println("Rebooting");
+    out.flush();
     delay(100);
-    cliClient.stop();
+    stopClient(out);
     delay(500);
     ESP.restart();
     return 0;
 }
 
-int exit(stringArray argv)
+int exit(stringArray argv, Stream &out)
 {
-    cliClient.stop();
+    stopClient(out);
     return 0;
 }
 
-int help(stringArray argv)
+int Conchita::help(stringArray argv, Stream &out)
 {
     if (argv.size() == 1)
     {
@@ -381,7 +376,7 @@ int help(stringArray argv)
 
         for (it = commandTable.begin(); it != commandTable.end(); it++)
         {
-            cliClient.println(it->first);
+            out.println(it->first);
         }
     }
     else
@@ -397,7 +392,7 @@ int help(stringArray argv)
             {
                 cd.helpText = "Not recognised";
             }
-            cliClient.printf("%s:\n\t%s\n", argv[i].c_str(), cd.helpText.isEmpty() ? "Help not available" : cd.helpText.c_str());
+            out.printf("%s:\n\t%s\n", argv[i].c_str(), cd.helpText.isEmpty() ? "Help not available" : cd.helpText.c_str());
         }
     }
     return 0;
@@ -413,21 +408,41 @@ void msToTime(unsigned long v, char *t)
     sprintf(t, "%02d:%02d:%02d.%03d", h, m, s, ms);
 }
 
-void addCommand(const char *cmd, int (*func)(stringArray), const String helptext)
+Conchita::Conchita(uint16_t port) : _server(port)
+{
+    buildCommandTable();
+}
+
+bool Conchita::start(const uint16_t stacksize, const int priority, const char *name)
+{
+    _server.begin();
+
+    xTaskCreate(
+        staticFunc,
+        name,
+        stacksize,
+        this,
+        priority,
+        &_handle);
+    return true;
+}
+
+void Conchita::stop()
+{
+    if (_handle != NULL) vTaskDelete(_handle);
+    _handle = NULL;
+}
+
+void Conchita::addCommand(const char *cmd, int (*func)(stringArray, Stream &), const String &helptext)
 {
     commandDescriptor desc;
     desc.func = func;
     desc.helpText = helptext;
-
     commandTable[cmd] = desc;
 }
 
-/**
- * @todo Make this configurable
- */
-void buildCommandTable()
+void Conchita::buildCommandTable()
 {
-    addCommand("help", help);
     addCommand("exit", exit);
     addCommand("reboot", reboot);
 
@@ -441,60 +456,47 @@ void buildCommandTable()
     addCommand("cat", cat);
 }
 
-int execute(stringArray argv)
+int Conchita::execute(stringArray argv)
 {
     int result = -1;
 
     if (argv.size() >= 1)
     {
-        try
+        if (argv[0] == "help")
         {
-            commandDescriptor desc = commandTable.at(argv[0].c_str());
-            result = desc.func(argv);
+            help(argv, *this);
         }
-        catch (const std::exception &e)
-        {
-            error = "Command not recognised";
-        }
+        else
+            try
+            {
+                commandDescriptor desc = commandTable.at(argv[0].c_str());
+                result = desc.func(argv, *this);
+            }
+            catch (const std::exception &e)
+            {
+                errout(argv[0].c_str(), "Command not recognised", result, _client);
+            }
     }
     return result;
 }
 
-void cliFunc(void *)
+void Conchita::func()
 {
-    cliServer.begin();
-
-    buildCommandTable();
-
     while (true)
     {
-        cliClient = cliServer.available();
-        while (cliClient)
+        _client = _server.available();
+        while (_client)
         {
             String s = getCommand();
             stringArray argv;
             parse(s.c_str(), argv);
             int result = execute(argv);
-            if (result < 0)
-            {
-                cliClient.printf("%s: error %d (%s)\n", argv[0].c_str(), result, error.c_str());
-            }
         }
         delay(500);
     }
 }
 
-TaskHandle_t startAsTask(const char *name, const UBaseType_t priority)
+void Conchita::staticFunc(void *obj)
 {
-    TaskHandle_t taskHandle;
-
-    xTaskCreate(
-        cliFunc,
-        name,
-        cliStackSize,
-        NULL,
-        priority,
-        &taskHandle);
-
-    return taskHandle;
+    static_cast<Conchita *>(obj)->func();
 }
